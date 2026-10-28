@@ -1,0 +1,19 @@
+name: popup
+on: [push, workflow_dispatch]
+jobs:
+  trial:
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [control, reserve, caps]
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: for f in watch hog capexec; do clang -O1 -o $f $f.c; done
+      - run: ./run.sh ${{ matrix.phase }}
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: out-${{ matrix.phase }}
+          path: out-${{ matrix.phase }}
