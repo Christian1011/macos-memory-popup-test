@@ -36,12 +36,22 @@ note "ann during: $(systemctl show -p ActiveState -p FreezerState ann-ts.service
 
 systemctl thaw ann-ts.service
 pid=$(systemctl show -p MainPID --value ann-ts.service)
-for n in 2 3; do
+ask() { # ask N LABEL: one quickinfo from ann's tsserver, logged once its Nth line lands
   kill -USR2 "$pid"
-  for i in $(seq 120); do [ "$(wc -l < "$probe/log.txt")" -ge $n ] && break; sleep 0.5; done
-  note "ann: $(tail -1 "$probe/log.txt")"
-done
+  for i in $(seq 120); do [ "$(wc -l < "$probe/log.txt")" -ge $1 ] && break; sleep 0.5; done
+  note "ann $2: $(tail -1 "$probe/log.txt")"
+}
+ask 2 "lazy thaw"; ask 3 "warm"
 note "ann slice after thaw: $(mib $cg/memory.current) MiB in RAM, $(mib $cg/memory.swap.current) MiB in swap"
+
+systemctl freeze ann-ts.service
+echo 8G > $cg/memory.reclaim 2>/dev/null
+note "ann frozen + reclaimed again: $(mib $cg/memory.current) MiB in RAM, $(mib $cg/memory.swap.current) MiB in swap"
+note "$(python3 -I prefetch.py $cg)"
+sleep 1
+note "ann after prefetch, still frozen: $(mib $cg/memory.current) MiB in RAM"
+systemctl thaw ann-ts.service
+ask 4 "prefetched thaw"
 cp "$probe/log.txt" "$out/ann-probe.txt"
 
 python3 -I - "$out/ann-probe.txt" "$log" <<'PY' | tee "$out/verdict.txt"
@@ -49,9 +59,9 @@ import re, sys
 probe = open(sys.argv[1]).read().splitlines(); log = open(sys.argv[2]).read()
 ms = [int(re.search(r"quickinfo (\d+) ms", l).group(1)) for l in probe]
 pids = {re.search(r"pid (\d+)", l).group(1) for l in probe}
-oom = re.search(r"oom_kill (\d+)", log); oom = int(oom.group(1)) if oom else 0
-print(f"cold load {ms[0]} ms, first answer after thaw from swap {ms[1]} ms, warm {ms[2]} ms; tsserver pids {sorted(pids)}")
-print(f"bob oom kills {oom}; ann {'stayed active' if 'ActiveState=active' in log else 'was lost'}")
-ok = len(ms) == 3 and len(pids) == 1 and oom > 0 and "ActiveState=active" in log and ms[1] < ms[0]
+bob = "Finished with result: oom-kill" in log
+print(f"cold load {ms[0]} ms; first answer after thaw: lazy {ms[1]} ms, prefetched {ms[3] if len(ms) > 3 else '?'} ms; warm {ms[2]} ms; tsserver pids {sorted(pids)}")
+print(f"bob {'was OOM-killed alone' if bob else 'was not killed'}; ann {'stayed active' if 'ActiveState=active' in log else 'was lost'}")
+ok = len(ms) == 4 and len(pids) == 1 and bob and "ActiveState=active" in log and ms[1] < ms[0]
 print("PASS: bob died alone and ann came back warm" if ok else "FAIL")
 PY

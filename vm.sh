@@ -48,6 +48,15 @@ for n in 1 2; do
   sent=$(date +%s%N); echo sum > "$out/ser.in"
   note "sum $n after thaw: $(answer '^[0-9]+ sum [0-9a-f]{32}')"
 done
+systemctl freeze carol-vm.service
+echo 4G > $cg/memory.reclaim 2>/dev/null
+note "frozen + reclaimed again: $(mib $cg/memory.current) MiB in RAM, $(mib $cg/memory.swap.current) MiB in swap"
+note "$(python3 -I prefetch.py $cg)"
+sleep 1
+note "after prefetch, still frozen: $(mib $cg/memory.current) MiB in RAM"
+systemctl thaw carol-vm.service
+sent=$(date +%s%N); echo sum > "$out/ser.in"
+note "sum 3 after prefetched thaw: $(answer '^[0-9]+ sum [0-9a-f]{32}')"
 note "after: $(mib $cg/memory.current) MiB in RAM, $(mib $cg/memory.swap.current) MiB in swap; $(systemctl show -p ActiveState carol-vm.service)"
 systemctl stop carol-vm.service
 
@@ -55,9 +64,9 @@ python3 -I - "$log" <<'PY' | tee "$out/verdict.txt"
 import re, sys
 log = open(sys.argv[1]).read()
 sums = re.findall(r"(?:ready|sum) ([0-9a-f]{32})", log)
-ms = [int(x) for x in re.findall(r"sum \d after thaw: (\d+) ms", log)]
+ms = [int(x) for x in re.findall(r"sum \d after (?:prefetched )?thaw: (\d+) ms", log)]
 swap = re.search(r"frozen \+ reclaimed: (\d+) MiB in RAM, (\d+) MiB in swap", log)
-print(f"md5s {sums}; answers after thaw {ms} ms; frozen VM {swap.group(1)} MiB in RAM, {swap.group(2)} MiB in swap" if swap else "no reclaim line")
-ok = len(sums) == 3 and len(set(sums)) == 1 and swap and int(swap.group(2)) > 500
+print(f"md5s {sums}; full-memory reads after thaw: lazy {ms[0] if ms else '?'} ms, warm {ms[1] if len(ms) > 1 else '?'} ms, prefetched {ms[2] if len(ms) > 2 else '?'} ms; frozen VM {swap.group(1)} MiB in RAM, {swap.group(2)} MiB in swap" if swap else "no reclaim line")
+ok = len(sums) == 4 and len(set(sums)) == 1 and swap and int(swap.group(2)) > 500
 print("PASS: the VM froze to swap and came back with its memory intact" if ok else "FAIL")
 PY
