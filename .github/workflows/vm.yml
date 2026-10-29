@@ -1,0 +1,14 @@
+name: vm-freeze
+on: workflow_dispatch
+jobs:
+  trial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo ./vm.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: out-vm
+          path: out-vm
