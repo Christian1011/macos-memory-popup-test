@@ -8,7 +8,7 @@ mib() { echo $(( $(cat "$1") / 1048576 )); }
 
 for p in ann bob; do id "$p" >/dev/null 2>&1 || useradd -m "$p"; done
 mkdir -p /etc/systemd/system/user-.slice.d
-printf '[Slice]\nMemoryHigh=5G\nMemoryMax=6G\n' > /etc/systemd/system/user-.slice.d/50-person.conf
+printf '[Slice]\nMemoryMax=6G\nMemorySwapMax=1500M\n' > /etc/systemd/system/user-.slice.d/50-person.conf
 systemctl daemon-reload
 note "kernel $(uname -r); $(systemctl --version | head -1); $(free -m | awk '/Mem|Swap/{printf "%s %s MB  ", $1, $2}')"
 
@@ -28,7 +28,7 @@ systemctl freeze ann-ts.service
 echo 8G > $cg/memory.reclaim 2>/dev/null
 note "ann frozen + reclaimed: $(mib $cg/memory.current) MiB in RAM, $(mib $cg/memory.swap.current) MiB in swap"
 
-systemd-run --uid=bob --slice=user-$bob.slice --unit=bob-hog --wait -p Environment=HOME=/home/bob \
+systemd-run --uid=bob --slice=user-$bob.slice --unit=bob-hog --wait -p RuntimeMaxSec=240 -p Environment=HOME=/home/bob \
   python3 -c 'b = []
 while True: b.append(bytearray(256 << 20))' >> "$log" 2>&1
 note "bob slice events: $(tr '\n' ' ' < /sys/fs/cgroup/user.slice/user-$bob.slice/memory.events)"

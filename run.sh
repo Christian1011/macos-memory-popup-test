@@ -11,18 +11,20 @@ freemb() { df -m "$V" | awk 'NR==2 {print $4}'; }
 start=$(date '+%Y-%m-%d %H:%M:%S')
 
 [ "$phase" = reserve ] && dd if=/dev/zero of="$HOME/reserve" bs=64m count=128 2>/dev/null
-./watch $([ "$phase" = reserve ] && echo --reserve "$HOME/reserve") > "$out/events.txt" &
+./watch $([ "$phase" = reserve ] && echo --reserve "$HOME/reserve") --fill "$HOME/fill" > "$out/events.txt" &
 watcher=$!
-n=$(( ($(freemb) - 300) / 64 ))
+n=$(( ($(freemb) - 600) / 64 ))
 [ "$n" -gt 0 ] && dd if=/dev/zero of="$HOME/fill" bs=64m count="$n" 2>/dev/null
 echo "free after fill: $(freemb) MB" >> "$out/machine.txt"
 
 cap=""; [ "$phase" = caps ] && cap="./capexec 1024"
 pids=()
-for i in 1 2 3 4; do $cap ./hog 2560 120 > "$out/hog$i.txt" 2>&1 & pids+=($!); done
+for i in 1 2 3 4; do $cap ./hog 2560 60 > "$out/hog$i.txt" 2>&1 & pids+=($!); done
+# A starved disk silences the runner itself, so the trial frees its disk after 6 minutes whatever happens.
+( sleep 360; rm -f "$HOME/fill"; pkill -x hog ) & guard=$!
 for i in 0 1 2 3; do wait "${pids[$i]}"; echo "hog$((i + 1)) exit $?" >> "$out/exits.txt"; done
 sleep 5
-kill "$watcher"
+kill "$watcher" "$guard" 2>/dev/null
 rm -f "$HOME/fill" "$HOME/reserve"
 
 log show --start "$start" --style compact --predicate 'sender == "kernel" AND (eventMessage CONTAINS[c] "paging" OR eventMessage CONTAINS[c] "memorystatus" OR eventMessage CONTAINS[c] "swap")' > "$out/kernel.txt" 2>&1

@@ -1,5 +1,6 @@
-// watch [--reserve PATH]: logs the kernel's memory-pressure and low-disk events.
-// With --reserve, deletes PATH at the first warning or critical memory pressure.
+// watch [--reserve PATH] [--fill PATH]: logs the kernel's memory-pressure and low-disk events.
+// --reserve deletes PATH at the first warning or critical memory pressure (the guard under test).
+// --fill deletes PATH once LOW_SWAP has been seen, so a trial that reaches the popup's trigger recovers.
 #include <sys/event.h>
 #include <sys/mount.h>
 #include <sys/sysctl.h>
@@ -24,7 +25,11 @@ static void stamp(const char *what) {
 }
 
 int main(int argc, char **argv) {
-  const char *reserve = argc > 2 && !strcmp(argv[1], "--reserve") ? argv[2] : NULL;
+  const char *reserve = NULL, *fill = NULL;
+  for (int i = 1; i + 1 < argc; i += 2) {
+    if (!strcmp(argv[i], "--reserve")) reserve = argv[i + 1];
+    if (!strcmp(argv[i], "--fill")) fill = argv[i + 1];
+  }
   int kq = kqueue();
   struct kevent ev[2];
   EV_SET(&ev[0], 0, EVFILT_MEMORYSTATUS, EV_ADD, 0x1 | WARN | CRITICAL | LOW_SWAP, 0, NULL);
@@ -43,6 +48,10 @@ int main(int argc, char **argv) {
     if (reserve && e.filter == EVFILT_MEMORYSTATUS && (e.fflags & (WARN | CRITICAL | LOW_SWAP)) && unlink(reserve) == 0) {
       stamp("reserve released");
       reserve = NULL;
+    }
+    if (fill && e.filter == EVFILT_MEMORYSTATUS && (e.fflags & LOW_SWAP) && unlink(fill) == 0) {
+      stamp("fill released");
+      fill = NULL;
     }
   }
 }
